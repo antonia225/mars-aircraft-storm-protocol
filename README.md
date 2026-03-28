@@ -1,4 +1,4 @@
-# mars-aircraft-storm-protocol
+# Mars Aircraft Storm Protocol
 
 Design document for an autonomous aircraft operating on Mars, tasked with deciding how to handle a dust storm mid-flight with no real-time communication with Earth.
 
