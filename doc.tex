@@ -1,0 +1,806 @@
+\documentclass[a4paper,12pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath, amssymb}
+\usepackage{graphicx}
+\usepackage{geometry}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\geometry{margin=1.5cm}
+\usepackage{hyperref}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.8em}
+
+\title{Autonomous Systems on Mars}
+\author{Elena-Antonia Stoica}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Documentation of an autonomous aircraft's protocol during a dust storm on Mars.
+The document covers a full problem analysis, including research findings, assumptions,
+and key questions, followed by a proposed solution with decision logic and implementation details.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+\section{Introduction}
+As part of the engineering team designing the future autonomous aircraft operating on Mars,
+I have written a document detailing how to handle the following specific scenario:
+\vspace{-0.8em}
+\begin{quote}
+\textit{The aircraft is mid-flight, a dust storm is approaching and the communication with Earth
+has a delay greater than the time of the storm's arrival, thus any attempt to deliver or receive messages
+is out of the equation. The aircraft must decide what protocol to follow.}
+\end{quote}
+\vspace{-0.8em}
+In this documentation, I will analyse the problems dust storms present, the risks they introduce,
+and what has made exploring Mars difficult in the past. I will present a solution for the scenario
+described above, detailing my thinking process.
+
+The documentation is divided into two main parts: Problem Analysis and Proposed Solution.
+
+\section{Problem Analysis}
+This section contains my approach to the problem, my assumptions, and my thinking process.
+I will also present the difficulties I encountered.
+
+\subsection{First Thoughts}
+My first thought after reading the scenario was straightforward:
+\vspace{-0.8em}
+\begin{quote}
+\textit{What is a dust storm on Mars actually like? What damages are there?}
+\end{quote}
+\vspace{-0.8em}
+Before proposing any solution, I wanted to understand the environment. I read about Martian
+dust storms \cite{nasa_dust_storms, esa_dust_devils} and found the following:
+
+\begin{itemize}[itemsep=0.3em]
+    \item Winds reach up to 160 km/h. However, Mars's atmosphere is so thin that the dynamic
+    pressure is significantly lower than an equivalent wind speed on Earth, meaning structural
+    damage is less of a concern than it first appears. The wind does, however, present real
+    challenges: navigation accuracy degrades, visibility drops significantly due to suspended
+    dust, and maintaining a stable flight path requires continuous correction.
+
+    \item Dust particles are slightly electrostatic. This initially raised the question of whether
+    they could serve as an alternative energy source, which I later reframed as a potential
+    navigation and sensing aid rather than a power solution.
+
+    \item Storms can last anywhere from a few hours to several weeks, making duration
+    completely unpredictable. This turned out to be one of the central difficulties of the problem.
+
+    \item Approximately once every three Martian years, a global dust storm covers the entire
+    planet. This has significant implications for mission planning.
+
+    \item Storms occur most frequently during Martian summer in the southern hemisphere,
+    which suggests routing and scheduling as a first line of prevention.
+
+    \item The primary cause is solar heating of the surface, which lifts fine particles into
+    the atmosphere and blocks sunlight — directly threatening solar-powered systems.
+\end{itemize}
+
+My immediate instinct after reading was also to ask: \textit{can the aircraft simply land before
+the storm arrives?} With 12 minutes of warning, this depends on the aircraft's current altitude,
+speed, terrain below, and proximity to a safe landing zone — none of which are specified. This
+question shaped my thinking early on, and suggested that the protocol must account for scenarios
+where immediate landing is not possible.
+
+This led to a natural first outline of the protocol: detour around the storm if possible,
+land before it arrives if not, and if neither is an option, ride it out. A detour is preferable
+to landing because it keeps the mission on schedule and avoids the logistics complications of
+a grounded aircraft. The rest of my analysis was spent stress-testing each of those three options.
+
+\subsection{Research Findings}
+The most important case I found during research was the Opportunity rover, which went silent
+in 2018 after a global dust storm blocked its solar panels for months \cite{nasa_opportunity}. Opportunity was not
+damaged by wind or particles — it simply ran out of power. This reframed the problem
+entirely: the primary threat is not structural damage, it is energy starvation.
+
+This led me to look at what power sources are viable independent of sunlight. The most
+realistic option, with proven Mars heritage, is the \textbf{RTG} (Radioisotope Thermoelectric
+Generator) — used on both Curiosity and Perseverance rovers \cite{nasa_mmrtg}. An RTG produces continuous
+low-level electrical power from radioactive decay, requires no sunlight, has no moving parts,
+and cannot be switched off. It is not sufficient for full propulsion, but it can keep avionics,
+navigation computers, and sensors alive indefinitely. This makes it the ideal baseline power
+source for storm survival.
+
+Regarding storm structure, Martian dust storms do not behave like Earth hurricanes. There is
+no calm eye at the center. Turbulence is chaotic and unpredictable throughout the storm.
+Winds are generally slower near the surface due to friction with the ground, which makes
+lower altitude the most viable option for finding a landing window — not navigating toward
+a center.
+
+Flying above the storm is also not a viable option. Martian atmosphere thins too rapidly with
+altitude, and most aircraft designs cannot generate sufficient lift beyond a certain ceiling,
+which falls well below storm height in major events. Ingenuity, the first autonomous aircraft
+to fly on Mars, operated at the equivalent of approximately 30 km altitude on Earth —
+already at the edge of what rotorcraft can achieve \cite{nasa_ingenuity}. There is no meaningful
+altitude headroom above that.
+
+Finally, radio signals function through dust. This is relevant for communication with nearby
+Martian bases, even mid-storm.
+
+\subsection{Key Questions}
+The following questions emerged during my analysis as the most important ones to answer
+before proposing any solution:
+
+\begin{enumerate}[itemsep=0.3em]
+    \item Can the aircraft detour around the storm? How large is the storm?
+    \item If a detour is not possible, can it land before the storm arrives?
+    \item If neither, how does the aircraft safely enter and navigate within the storm?
+    \item Where are winds weakest within the storm?
+    \item How long will the storm last?
+    \item Is there critical cargo aboard, and how time-sensitive is the delivery?
+    \item How far is the destination, and is there a nearby Martian base?
+    \item Can the aircraft maintain positional accuracy inside the storm using inertial navigation
+    cross-referenced against terrain maps?
+    \item Can signals reach a nearby base mid-storm?
+\end{enumerate}
+
+\subsection{Assumptions}
+The following assumptions were made in the absence of specific mission parameters:
+
+\begin{enumerate}[itemsep=0.3em]
+    \item \textbf{Communication with Earth is not relied upon.} The 14-minute round-trip delay
+    exceeds the 12-minute warning window. By the time Earth receives the alert and responds,
+    the aircraft will already be inside the storm. All decisions are made autonomously.
+
+    \item \textbf{The aircraft is unmanned.} There is no crew aboard. The priority hierarchy is:
+    preserve the aircraft, preserve the cargo, resume the mission.
+
+    \item \textbf{The aircraft is structurally built for Martian conditions.} No fragile external
+    hardware is assumed. The aircraft can withstand the dynamic pressure of Martian winds.
+
+    \item \textbf{Pre-loaded high-resolution terrain maps are onboard.} The aircraft does not
+    need to see the terrain to navigate — it cross-references its inertial position against
+    known terrain data.
+
+    \item \textbf{An RTG is standard equipment.} The aircraft carries a radioisotope
+    thermoelectric generator as its baseline power source, independent of solar conditions.
+
+    \item \textbf{Radio signals function through dust.} Communication with nearby bases
+    is possible even mid-storm.
+
+    \item \textbf{Martian bases and rovers exist within operational range on some missions.}
+    This is not guaranteed, and the protocol accounts for cases where no base is nearby.
+
+    \item \textbf{Storm duration cannot be estimated reliably at decision time.} Local and regional
+    storm duration is entirely unpredictable. Global storms occur approximately once every three
+    Martian years and their windows are known in advance, making them preventable through mission
+    scheduling — but once started, even global storms have unpredictable duration. The protocol
+    does not assume the storm will clear within any given timeframe.
+
+    \item \textbf{Martian dust storms have no calm eye.} The aircraft cannot navigate toward
+    a calmer center as one might with a hurricane.
+\end{enumerate}
+
+\subsection{What Makes This Problem Hard}
+Several factors combine to make this a genuinely difficult autonomous decision problem:
+
+\begin{itemize}[itemsep=0.3em]
+    \item \textbf{Energy starvation, not structural damage, is the primary threat.} Solar panels
+    are blocked. The aircraft must operate on RTG power alone, which is sufficient for avionics
+    but likely insufficient for full propulsion against strong winds.
+
+    \item \textbf{Storm duration is unpredictable at decision time.} Local and regional storms
+    give no reliable forecast. Global storms are predictable in their occurrence window —
+    approximately once every three Martian years — but not in their duration once started.
+    Any protocol that depends on knowing when the storm will clear is unreliable.
+
+    \item \textbf{Sensor degradation inside the storm is severe.} Optical sensors fail in dust.
+    Sonar-based sensors are unreliable due to the thin atmosphere and particle interference.
+    The aircraft is effectively navigating blind, relying on inertial systems and terrain maps.
+
+    \item \textbf{Inertial navigation accumulates error over time.} Wind drift causes positional
+    uncertainty to grow the longer the aircraft is inside the storm. This creates time pressure
+    on finding a safe landing window.
+
+    \item \textbf{There is no calm center to navigate toward.} Unlike a hurricane, Martian
+    dust storms are chaotic throughout. There is no guaranteed low-turbulence zone.
+
+    \item \textbf{Flying above the storm is not feasible.} The atmosphere thins too quickly
+    with altitude. The aircraft cannot climb above the storm without losing lift entirely.
+
+    \item \textbf{Cargo delivery introduces compounding unknowns.} Whether to dispatch rovers,
+    transfer cargo to a nearby base, or hold and await instructions depends on storm duration,
+    base proximity, and destination distance — most of which are unknown at decision time.
+
+    \item \textbf{The decision logic must be unambiguous.} The aircraft is autonomous. Every
+    branch of the protocol must have clear, codified trigger conditions. There is no room for
+    interpretation.
+\end{itemize}
+
+\subsection{How My Thinking Evolved}
+My first instinct was not to find a solution — it was to understand the environment. Before
+anything else, I wanted to know what a Martian dust storm actually does: what it damages,
+how long it lasts, how strong the winds are, and what has gone wrong in past missions because
+of one.
+
+That research shifted my focus immediately. The wind, despite reaching 160 km/h, exerts far
+less force than on Earth due to the thin atmosphere — structural damage was less of a concern
+than I initially assumed. The real danger, as the Opportunity rover made clear, was energy
+starvation. The storm does not destroy the aircraft. It blinds the solar panels, and without
+power, everything else fails.
+
+This reframing changed the entire direction of my thinking. The question was no longer
+\textit{how do we survive the storm} but \textit{how do we keep the aircraft powered and
+navigating through it}. The RTG answered the power question. With continuous power assumed,
+the storm became a navigation and logistics problem rather than a survival one — and that
+opened up the full decision tree: detour, land, or ride it out.
+
+Each of those options introduced new questions — about storm size, terrain, cargo, base
+proximity, and signal availability — which led to the final insight: \textit{the aircraft is
+not the only asset in the system.} A solution that treats the aircraft in isolation misses
+the broader infrastructure. When the aircraft cannot complete the mission alone, the question
+becomes what other systems can assist, and under what conditions that assistance is worth invoking.
+
+\section{Proposed Solution}
+
+\subsection{Core Thesis}
+The aircraft's survival strategy is not to fight the storm or find a replacement power source,
+but to avoid it where possible and outlast it where not — using RTG power to keep systems alive,
+terrain maps to navigate blind, and the broader Martian infrastructure to complete the mission
+when the aircraft alone cannot.
+
+The key insight that shaped this solution is that the storm is not inherently dangerous to a
+well-built aircraft. The wind exerts far less dynamic pressure than an equivalent speed on Earth,
+and the RTG provides continuous power independent of solar conditions. The real threats are
+navigational: degraded sensors, positional drift, and an unknowable storm duration. The protocol
+is therefore designed around information management and decision thresholds, not raw survival.
+
+The protocol follows a strict priority order:
+\begin{enumerate}[itemsep=0.3em]
+    \item \textbf{Detour} — if the storm is mappable and energy reserves are sufficient, fly around it
+    \item \textbf{Land} — if detour is not possible but a safe landing zone is reachable before the storm arrives
+    \item \textbf{Ride it out} — if neither is possible, minimize power consumption, drift with the storm,
+    and attempt landing when conditions allow
+\end{enumerate}
+
+Each option has explicit trigger conditions and thresholds, detailed in Section 3.3.
+
+\subsection{Energy Architecture}
+The aircraft carries an RTG (Radioisotope Thermoelectric Generator) as its baseline power source.
+This is a deliberate design choice informed by Mars mission heritage — both Curiosity and Perseverance
+rely on RTGs for exactly this reason: they produce continuous, stable electrical power from radioactive
+decay, require no sunlight, have no moving parts, and cannot be switched off. Ingenuity, NASA's
+autonomous helicopter on Mars, demonstrated that autonomous rotorcraft flight in the Martian
+atmosphere is achievable \cite{nasa_ingenuity} — but it relied on solar power, which dust storms
+render unavailable. The RTG removes this dependency entirely. During a dust storm,
+when solar panels are completely blocked, the RTG is the only power source that remains fully
+operational without any intervention.
+
+The RTG's output is modest — sufficient to power avionics, navigation computers, communication
+systems, and sensors, but not sufficient for full propulsion thrust. This is a known constraint
+and the protocol accounts for it: the aircraft does not attempt to fight strong winds on RTG power
+alone. Instead, it uses passive aerodynamics where possible, reducing powered flight to the minimum
+needed for directional control.
+
+The following table summarises the energy sources evaluated and their viability mid-storm:
+
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}llll@{}}
+\toprule
+\textbf{Source} & \textbf{Availability} & \textbf{Power level} & \textbf{Feasibility} \\
+\midrule
+Solar panels        & No         & High (normally)  & Useless in storm \\
+RTG                 & Yes        & Low, steady      & Powers avionics and navigation \\
+Electrostatic harvesting & Yes   & Very low         & Sensors only, supplementary \\
+Wind / passive gliding   & Yes   & Structural, not electrical & Extends flight time \\
+Fission reactor     & Delayed    & High             & Not viable for this design \\
+\bottomrule
+\end{tabular}
+\caption{Energy source evaluation during a Martian dust storm}
+\end{table}
+
+The realistic picture is a layered power mode: the RTG keeps all critical systems alive,
+electrostatic harvesting from dust particles provides a negligible but non-zero supplementary
+trickle to sensors, and the airframe uses passive aerodynamics to reduce the propulsion load.
+Together, these allow the aircraft to remain operational indefinitely during a storm — not
+comfortably, but reliably.
+
+\subsubsection{Storm Boundaries Detection}
+
+Storm boundary detection also relies on existing onboard sensors rather than dedicated storm
+mapping hardware. The aircraft uses a combination of the following to estimate storm size
+and position in real time:
+
+\begin{itemize}[itemsep=0.3em]
+    \item \textbf{Barometric pressure sensors} — pressure gradients shift measurably at storm edges
+    \item \textbf{Temperature sensors} — dust storms cause detectable surface and air temperature changes
+    \item \textbf{Wind speed and direction sensors} — storm boundary is detectable as wind patterns change sharply
+    \item \textbf{Optical sensors} — the visible dust wall at the storm edge is detectable before
+    visibility fully degrades
+    \item \textbf{Electrostatic sensors} — the storm's electrostatic field creates measurable gradients
+    at its boundaries
+\end{itemize}
+
+These inputs are fused to produce a storm boundary estimate with an associated confidence value.
+This confidence value is a direct input to the detour decision threshold in Section 3.3.
+
+\subsection{Decision Logic}
+The aircraft has 12 minutes from storm detection to make and execute a decision. The protocol
+evaluates three options in strict priority order. Each option has explicit trigger conditions
+that must all be satisfied before that path is taken. If any condition fails, the protocol
+falls through to the next option.
+
+\subsubsection*{Data Flow}
+Before any decision is made, data moves through the system in the following sequence:
+
+\begin{enumerate}[itemsep=0.3em]
+    \item \textbf{Sensors $\rightarrow$ Fusion Layer.} Raw readings from barometric, temperature,
+    wind, optical, and electrostatic sensors are collected and fused into a unified storm
+    boundary estimate with an associated confidence value.
+
+    \item \textbf{Fusion Layer $\rightarrow$ State Model.} The fused estimate updates the
+    aircraft's internal state: storm position, storm width, time to arrival, current energy
+    reserves, inertial position, and positional uncertainty.
+
+    \item \textbf{State Model $\rightarrow$ Decision Engine.} The decision engine reads the
+    current state and evaluates each protocol option in priority order against its trigger
+    conditions.
+
+    \item \textbf{Decision Engine $\rightarrow$ Action.} The selected action — detour, land,
+    or enter survival mode — is passed to the flight control system for execution.
+
+    \item \textbf{Action $\rightarrow$ Transmission.} In parallel with execution, the aircraft
+    transmits its current state, decision, and position to Earth and any nearby Martian bases.
+\end{enumerate}
+
+During survival mode, steps 2 through 5 repeat every 60 seconds as the aircraft continuously
+reassesses whether a landing window has opened.
+
+\subsubsection*{Option 1 — Detour}
+A detour is the preferred outcome. It keeps the mission on schedule, avoids all storm-related
+risks, and requires no cargo contingency planning. The aircraft attempts a detour if and only
+if all of the following conditions are met:
+
+\begin{itemize}[itemsep=0.3em]
+    \item \textbf{Storm boundary confidence $\geq$ 70\%.} The aircraft's sensor fusion must
+    produce a storm width and position estimate with sufficient confidence. Below this threshold,
+    committing to a detour route is too risky — the storm may be larger than estimated.
+
+    \item \textbf{Detour distance is within energy budget with a 20\% reserve.} The estimated
+    detour route must be completable on current energy reserves, retaining at least 20\% as a
+    safety margin. This margin accounts for wind resistance, course corrections, and the energy
+    cost of landing at the destination.
+
+    \item \textbf{Time to storm arrival is sufficient to begin the detour.} With 12 minutes of
+    warning, the aircraft must confirm it can clear the storm's edge before the storm reaches
+    its current position.
+\end{itemize}
+
+If all three conditions are met, the aircraft calculates the shortest detour route around the
+storm boundary, updates its flight path, and continues toward the original destination.
+
+\subsubsection*{Option 2 — Land Before the Storm Arrives}
+If a detour is not possible, the aircraft evaluates whether it can land safely before the storm
+arrives. This option is triggered if all of the following conditions are met:
+
+\begin{itemize}[itemsep=0.3em]
+    \item \textbf{A safe landing zone exists within reachable distance.} The terrain map must
+    identify a flat, obstacle-free area within the aircraft's current glide and flight range.
+
+    \item \textbf{The landing zone is reachable within the remaining time window.} The aircraft
+    must be able to reach and land at the zone before the storm arrives.
+
+    \item \textbf{Wind conditions at the landing zone are within safe landing thresholds.}
+    If the storm's leading edge has already reached the candidate landing zone, this option
+    is disqualified.
+\end{itemize}
+
+If all three conditions are met, the aircraft navigates to the landing zone and executes a
+controlled landing. It then transmits its position and status to Earth and to any nearby
+Martian bases, and holds for further instructions. Note that Earth's response will arrive
+no sooner than 14 minutes after the transmission — the aircraft does not wait for a response
+before landing. The transmission is informational, not a request for permission.
+
+\subsubsection*{Option 3 — Ride It Out}
+If neither detour nor landing is possible, the aircraft enters storm survival mode. This is
+not a passive state — it is an active low-power flight mode with continuous reassessment.
+
+The aircraft takes the following steps:
+
+\begin{itemize}[itemsep=0.3em]
+    \item \textbf{Switch to minimum power mode.} Non-essential systems are shut down.
+    Only navigation, terrain avoidance, communication, and structural control remain active.
+    The RTG provides sufficient power for all of these indefinitely.
+
+    \item \textbf{Descend to lower altitude.} Surface friction reduces wind speed near the ground,
+    giving the aircraft more control authority. The aircraft descends to a dynamically calculated
+    safe altitude based on terrain map data, with a fixed hard floor of 50 metres above the
+    highest terrain feature within a 2 km radius. If positional uncertainty exceeds a safe
+    threshold, the fixed floor takes precedence over the dynamic calculation.
+
+    \item \textbf{Adopt a passive gliding profile.} Rather than fighting the wind with full
+    propulsion, the aircraft orients itself to extract lift from the wind and drift with the
+    storm. Propulsion is used only for directional correction, not to maintain position.
+
+    \item \textbf{Continuously monitor for a landing window.} Every 60 seconds, the aircraft
+    reassesses whether a safe landing zone is now reachable. As the storm progresses and
+    the aircraft drifts, new terrain becomes available. The moment a landing window is
+    confirmed — flat terrain, wind speed within threshold, positional confidence sufficient
+    — the aircraft exits drift mode and executes a controlled landing.
+
+    \item \textbf{Transmit position continuously.} The aircraft broadcasts its position and
+    status at regular intervals so that nearby bases and Earth can track it throughout the storm.
+\end{itemize}
+
+\subsubsection*{Altitude Floor Detail}
+The altitude floor during drift is calculated as follows:
+
+\begin{itemize}[itemsep=0.3em]
+    \item \textbf{Dynamic floor:} $A_{floor} = \max(\text{terrain height within 2 km radius}) + 50\text{m}$,
+    updated continuously from terrain map cross-referenced with inertial position estimate.
+
+    \item \textbf{Fixed hard floor:} 50 metres above the highest terrain feature in the
+    pre-loaded map for the current region. This activates automatically when positional
+    uncertainty $\sigma > 100\text{m}$, overriding the dynamic calculation.
+\end{itemize}
+
+The fixed hard floor is a conservative fallback. It may result in a higher-than-necessary
+altitude in flat terrain, but it guarantees terrain clearance when the aircraft can no longer
+trust its own position estimate.
+
+\subsection{Terrain Avoidance}
+Inside a dust storm, the aircraft is effectively blind. Optical sensors fail in suspended dust,
+and sonar-based sensors are unreliable in Mars's thin atmosphere due to poor sound propagation
+and particle interference. Terrain avoidance therefore relies entirely on two systems working
+in combination: pre-loaded terrain maps and inertial navigation.
+
+\textbf{Primary method — map-based navigation.} Before any mission, the aircraft is loaded with
+high-resolution terrain maps of its operational area. These maps include elevation data, known
+obstacles, and candidate landing zones. Inside the storm, the aircraft does not need to see the
+terrain — it needs to know where it is relative to the map. As long as positional accuracy is
+sufficient, the aircraft can cross-reference its inertial position against the map and maintain
+safe terrain clearance.
+
+\textbf{Inertial navigation and drift error.} Inertial navigation systems track position by
+integrating acceleration and rotation over time from a known starting point. They require no
+external signals and function in complete sensor blackout. Their weakness is cumulative error:
+small measurement inaccuracies compound over time, and wind drift adds further positional
+uncertainty. The longer the aircraft is inside the storm, the less confident its position
+estimate becomes. This is why the fixed hard floor fallback exists — when positional uncertainty
+$\sigma$ exceeds 100 metres, the aircraft stops trusting its dynamic terrain calculation and
+reverts to the most conservative safe altitude for the region.
+
+\textbf{Sonar as last-resort backup.} Despite its limitations in thin atmosphere, a low-frequency
+sonar system can serve as a close-range backup for terrain detection at very low altitudes —
+specifically during final approach to landing when the aircraft is within 20--30 metres of the
+surface. At this range and altitude, the atmosphere is at its densest on Mars, improving sonar
+reliability marginally. It is not a primary navigation tool, but it provides a final sanity
+check before touchdown.
+
+\textbf{Landing zone selection during drift.} As the aircraft drifts, it continuously scans
+its terrain map ahead of its projected path. A candidate landing zone must satisfy the following
+conditions before the aircraft commits to it:
+
+\begin{itemize}[itemsep=0.3em]
+    \item Terrain slope below a safe threshold within the map data
+    \item No known obstacles within the approach corridor
+    \item Positional confidence sufficient to trust the map cross-reference
+    \item Wind speed at current altitude within controllable range for final descent
+\end{itemize}
+
+\subsection{Pseudocode}
+The following pseudocode describes the full autonomous decision logic from storm detection
+through to resolution. Function names and conditions correspond directly to the thresholds
+defined in Sections 3.3 and 3.4.
+
+\begin{verbatim}
+# Constants
+DETOUR_CONFIDENCE_THRESHOLD = 0.70
+ENERGY_SAFETY_MARGIN = 0.20
+ALTITUDE_HARD_FLOOR = 50          # metres above highest terrain in region
+POSITION_UNCERTAINTY_LIMIT = 100  # metres, triggers hard floor fallback
+DRIFT_REASSESSMENT_INTERVAL = 60  # seconds
+SONAR_ACTIVATION_ALTITUDE = 30    # metres, last-resort terrain check
+
+# --- Storm Detection ---
+function on_storm_detected(storm_data, aircraft_state):
+    transmit_status_to_earth(aircraft_state, storm_data)
+    transmit_status_to_nearest_base(aircraft_state, storm_data)
+
+    decision = evaluate_protocol(storm_data, aircraft_state)
+    execute(decision)
+
+
+# --- Top-Level Protocol ---
+function evaluate_protocol(storm_data, aircraft_state):
+
+    if can_detour(storm_data, aircraft_state):
+        return plan_detour(storm_data, aircraft_state)
+
+    if can_land_before_storm(storm_data, aircraft_state):
+        return plan_immediate_landing(aircraft_state)
+
+    return enter_survival_mode(aircraft_state)
+
+
+# --- Option 1: Detour ---
+function can_detour(storm_data, aircraft_state):
+    confidence = estimate_storm_boundary_confidence(storm_data)
+    if confidence < DETOUR_CONFIDENCE_THRESHOLD:
+        return False
+
+    detour_route = calculate_detour_route(storm_data, aircraft_state.position)
+    detour_cost  = estimate_energy_cost(detour_route, aircraft_state)
+    available    = aircraft_state.energy_reserves * (1 - ENERGY_SAFETY_MARGIN)
+    if detour_cost > available:
+        return False
+
+    time_to_clear = estimate_time_to_clear_storm_edge(detour_route, aircraft_state)
+    if time_to_clear > aircraft_state.time_to_storm_arrival:
+        return False
+
+    return True
+
+function plan_detour(storm_data, aircraft_state):
+    route = calculate_detour_route(storm_data, aircraft_state.position)
+    return { action: "DETOUR", route: route }
+
+
+# --- Option 2: Land Before Storm ---
+function can_land_before_storm(storm_data, aircraft_state):
+    zone = find_nearest_safe_landing_zone(
+               aircraft_state.position,
+               aircraft_state.terrain_map)
+    if zone is None:
+        return False
+
+    time_to_land = estimate_flight_time(aircraft_state.position, zone)
+    if time_to_land > aircraft_state.time_to_storm_arrival:
+        return False
+
+    if storm_leading_edge_reached(zone, storm_data):
+        return False
+
+    return True
+
+function plan_immediate_landing(aircraft_state):
+    zone = find_nearest_safe_landing_zone(
+               aircraft_state.position,
+               aircraft_state.terrain_map)
+    return { action: "LAND", target_zone: zone }
+
+
+# --- Option 3: Survival Mode ---
+function enter_survival_mode(aircraft_state):
+    shutdown_nonessential_systems()
+    activate_passive_glide_profile()
+    descend_to_safe_altitude(aircraft_state)
+
+    while True:
+        transmit_position(aircraft_state)
+        wait(DRIFT_REASSESSMENT_INTERVAL)
+
+        update_position_estimate(aircraft_state)
+        update_altitude_floor(aircraft_state)
+
+        zone = find_nearest_safe_landing_zone(
+                   aircraft_state.position,
+                   aircraft_state.terrain_map)
+
+        if zone is not None and landing_conditions_met(zone, aircraft_state):
+            return { action: "LAND", target_zone: zone }
+
+
+# --- Altitude Management ---
+function descend_to_safe_altitude(aircraft_state):
+    floor = compute_altitude_floor(aircraft_state)
+    aircraft_state.target_altitude = floor
+
+function compute_altitude_floor(aircraft_state):
+    if aircraft_state.position_uncertainty > POSITION_UNCERTAINTY_LIMIT:
+        # positional confidence too low — use conservative fixed floor
+        return get_regional_max_terrain_height() + ALTITUDE_HARD_FLOOR
+
+    # dynamic floor — terrain map cross-referenced with current position
+    local_max = max_terrain_height_within_radius(
+                    aircraft_state.position, radius=2000)
+    return local_max + ALTITUDE_HARD_FLOOR
+
+
+# --- Landing Execution ---
+function execute_landing(target_zone, aircraft_state):
+    navigate_to(target_zone)
+
+    if aircraft_state.altitude < SONAR_ACTIVATION_ALTITUDE:
+        activate_sonar_terrain_check()   # last-resort sanity check
+
+    perform_controlled_landing(target_zone)
+    transmit_status_to_earth(aircraft_state, status="LANDED")
+    transmit_status_to_nearest_base(aircraft_state, status="LANDED")
+\end{verbatim}
+
+\subsection{Cargo Contingency}
+The base protocol described in Section 3.3 applies regardless of cargo. However, if the aircraft
+is carrying cargo flagged as mission-critical in its pre-loaded mission parameters, an additional
+layer of decision logic applies after landing.
+
+\subsubsection*{Why landing is still the right first step}
+Even with critical cargo aboard, the aircraft should not attempt to fly through the storm
+indefinitely. Storm duration is unpredictable — it could last weeks. Drifting with critical
+cargo for an unknown period, with degraded navigation and no guarantee of reaching the
+destination, introduces more risk than a controlled landing. The protocol therefore lands
+as early as possible, then evaluates cargo delivery options from the ground.
+
+\subsubsection*{Cargo delivery decision tree}
+Once the aircraft has landed, the following logic applies:
+
+\begin{enumerate}[itemsep=0.3em]
+    \item \textbf{Transmit position, cargo status, and destination to Earth and nearest base.}
+    Radio signals function through dust, so this is reliable regardless of storm conditions.
+    Earth's response will arrive in approximately 14 minutes — the aircraft does not wait
+    for it before evaluating ground options.
+
+    \item \textbf{Check proximity of nearest Martian base.}
+    If a base is within rover range, the aircraft signals the base to dispatch a rover.
+    Rovers equipped with RTGs or batteries can operate in dust storms — they are low to the
+    ground, do not depend on lift, and are not affected by visibility in the same way an
+    aircraft is.
+
+    \item \textbf{Evaluate delivery feasibility based on destination distance.}
+    \begin{itemize}[itemsep=0.3em]
+        \item If the destination is within approximately one week of rover travel time,
+        dispatch a rover to collect and deliver the cargo directly.
+        \item If the destination is further, the nearest base retrieves the cargo and holds
+        it, then signals the destination to arrange onward transport once the storm clears.
+        \item If no base is within range, the aircraft holds the cargo, transmits its
+        position continuously, and awaits instructions from Earth or the nearest base.
+        This is the fallback of last resort — it introduces delay, but preserves the cargo
+        and the aircraft.
+    \end{itemize}
+\end{enumerate}
+
+\subsubsection*{The storm duration problem}
+A key difficulty here is that rover dispatch without knowing storm duration risks wasting
+power. A rover sent into a multi-week global storm may not survive the journey. The protocol
+therefore includes a storm type check before dispatching rovers:
+
+\begin{itemize}[itemsep=0.3em]
+    \item \textbf{If the storm is identified as a local or regional storm} — duration is
+    unknown but statistically likely to resolve within days to a few weeks. Rover dispatch
+    is evaluated based on destination distance and rover energy budget.
+    \item \textbf{If the storm is identified as a global storm} — duration could extend
+    to months. Rover dispatch is suspended. The aircraft holds cargo and awaits Earth
+    instructions. Global storm windows are known in advance from orbital monitoring, so
+    this scenario should have been prevented at the mission planning stage.
+\end{itemize}
+
+Storm type is identified from pre-loaded orbital weather data updated before departure,
+cross-referenced with real-time sensor readings on storm scale and pressure gradients.
+
+\subsubsection*{Pseudocode extension for cargo}
+\begin{verbatim}
+# Additional constant
+ROVER_MAX_TRAVEL_DAYS = 7
+
+# Called after any landing when cargo flag is set
+function handle_cargo_contingency(aircraft_state, cargo):
+    if not cargo.is_mission_critical:
+        return   # standard hold, await aircraft resumption
+
+    transmit_cargo_status(aircraft_state, cargo)
+
+    storm_type = identify_storm_type(aircraft_state.sensor_data)
+    if storm_type == "GLOBAL":
+        # do not dispatch rovers, hold and await Earth instructions
+        hold_and_await_instructions(aircraft_state, cargo)
+        return
+
+    nearest_base = find_nearest_base(aircraft_state.position)
+    if nearest_base is None:
+        hold_and_await_instructions(aircraft_state, cargo)
+        return
+
+    travel_days = estimate_rover_travel_time(
+                      nearest_base.position,
+                      cargo.destination)
+
+    if travel_days <= ROVER_MAX_TRAVEL_DAYS:
+        signal_base_dispatch_rover(nearest_base, aircraft_state, cargo)
+    else:
+        signal_base_retrieve_and_hold(nearest_base, aircraft_state, cargo)
+
+
+function hold_and_await_instructions(aircraft_state, cargo):
+    while not instructions_received():
+        transmit_position(aircraft_state)
+        transmit_cargo_status(aircraft_state, cargo)
+        wait(DRIFT_REASSESSMENT_INTERVAL)
+\end{verbatim}
+
+\subsection{Why This Approach}
+The solution presented here was not the first one I considered. My initial instinct was to
+understand what the storm could actually do — what damages it causes, how strong it is, how
+long it lasts. Only after understanding the environment did the energy problem become central.
+The Opportunity rover made it concrete: a machine that was not destroyed by a storm, but simply
+ran out of power waiting for one to clear. The real problem was never the storm itself. It was
+the assumptions baked into the system — that solar power would always be available, and that
+the mission could continue uninterrupted.
+
+This shaped the entire approach. Rather than designing around a single failure mode, the
+protocol is designed around uncertainty: unknown storm duration, degraded sensors, unreliable
+positioning, and an infrastructure that may or may not be within range. Every decision branch
+has an explicit fallback. Every threshold is named and adjustable. Nothing in the protocol
+assumes information the aircraft does not have.
+
+There are several specific reasons why this approach is preferable to the alternatives:
+
+\textbf{RTG over solar dependency.} An aircraft designed for Mars that depends solely on solar
+power is fragile by design. Dust storms are not rare — they are a predictable feature of the
+Martian environment. The RTG removes the single most dangerous dependency in the system.
+It does not solve every problem, but it ensures the aircraft can always think, navigate, and
+communicate, regardless of conditions.
+
+\textbf{Detour over avoidance.} The protocol prefers a detour to simply waiting on the ground.
+A grounded aircraft waiting for a storm to clear — with no estimate of when that will be —
+is a mission that may never resume. A detour keeps the mission moving. It is only attempted
+when the conditions genuinely support it, but it is always the first option evaluated.
+
+\textbf{Outlasting over fighting.} When neither detour nor landing is possible, the aircraft
+does not attempt to maintain its position or push through the storm on propulsion alone. RTG
+power is insufficient for sustained thrust against strong winds. Fighting the storm would
+drain the aircraft's limited power reserves and leave it in a worse position. Passive gliding
+conserves energy, extracts lift from the wind, and buys time — which is exactly what the
+situation requires.
+
+\textbf{Systems thinking over aircraft-only thinking.} The cargo contingency section reflects
+a broader principle: the aircraft is one node in a larger system. Rovers, bases, and orbital
+monitoring all exist. A solution that ignores them is incomplete. The protocol uses them where
+appropriate, without over-relying on them — because their availability is not guaranteed.
+
+\textbf{Unambiguous logic over flexible judgment.} Every branch of the protocol has clear,
+codified trigger conditions. This is not a stylistic choice — it is a requirement. An
+autonomous system cannot exercise judgment. It can only evaluate conditions and execute
+instructions. Ambiguity in the protocol is a bug, not a feature. Every threshold in the
+pseudocode exists because a vague instruction like ``land if it seems safe'' is not
+implementable.
+
+The honest limitation of this approach is that it depends on the quality of the terrain maps
+and the accuracy of the inertial navigation system. If the maps are incomplete or the
+positional error grows too large, the aircraft's ability to find a safe landing zone degrades.
+This is acknowledged in the fixed hard floor fallback, but it cannot be fully mitigated in
+software — it is ultimately a hardware and pre-mission data quality problem.
+
+\section{Conclusion}
+This document set out to answer a deceptively simple question: what should an autonomous
+aircraft do when a dust storm is 12 minutes away and Earth cannot help in time?
+
+The answer required understanding the environment before designing a solution. Martian dust
+storms are not structurally dangerous to a well-built aircraft — they are energetically and
+navigationally dangerous. The Opportunity rover did not fail because the storm was violent \cite{nasa_opportunity}.
+It failed because the system had a single point of failure: solar power. That insight drove
+every decision in this protocol.
+
+The proposed solution is built on three principles. First, remove the single point of failure
+— an RTG \cite{nasa_mmrtg} provides continuous power independent of solar conditions, ensuring the aircraft can
+always think, navigate, and communicate. Second, prefer the option that keeps the mission
+moving — detour first, land second, ride it out only when necessary. Third, design for
+uncertainty — unknown storm duration, degraded sensors, and variable infrastructure mean
+every decision branch needs an explicit fallback, not an assumption that conditions will
+be favourable.
+
+The result is a protocol that is not optimistic. It does not assume the storm will be short,
+that a landing zone will be nearby, or that a base will be within rover range. It assumes the
+worst and plans accordingly. When conditions are better than expected, the protocol naturally
+takes the better path. When they are not, it has a fallback.
+
+The honest limitation is that the protocol's reliability is bounded by the quality of the
+terrain maps and the accuracy of the inertial navigation system. These are pre-mission
+dependencies that cannot be compensated for in software alone. A mission that departs with
+incomplete maps or poorly calibrated inertial systems has a weaker protocol, regardless of
+how well the decision logic is written.
+
+Avoiding the southern hemisphere in Martian summer, scheduling around known global storm windows,
+and maintaining awareness of the three-year cycle are all upstream decisions that cost nothing
+and eliminate entire categories of risk. The best autonomous decision is the one the aircraft
+never has to make.
+
+\newpage
+\bibliographystyle{plain}
+\bibliography{References}
+
+\end{document}
